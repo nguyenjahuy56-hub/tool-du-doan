@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tool Auto Dự Đoán VIP (với chọn Bàn MD5)</title>
+    <style>
+        :root { --panel-scale: 1; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background-color: #0d0d12; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        #game-frame { width: 100%; height: 100vh; border: none; display: block; }
+
+        /* Panel */
+        #tool-panel {
+            position: absolute; top: 15px; right: 15px; width: 340px; min-width: 240px; min-height: 120px;
+            background: rgba(20, 24, 34, 0.95); color: #fff; padding: 0;
+            border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.8);
+            border: 1px solid #333; z-index: 9999; overflow: hidden;
+            backdrop-filter: blur(10px);
+            resize: both; /* allow resizing */
+            transform-origin: top right;
+            transform: scale(var(--panel-scale));
+            touch-action: none;
+        }
+
+        /* Toggle button (visible on desktop & mobile) */
+        #toggle-tool {
+            position: fixed; top: 15px; right: 15px; z-index: 10000;
+            padding: 10px 14px; background: #3366ff; color: white; border: none;
+            border-radius: 8px; cursor: pointer; font-weight: bold; display: none;
+        }
+
+        /* Header */
+        .panel-header {
+            background: linear-gradient(90deg, #ff3333, #3366ff);
+            padding: 12px; text-align: center; font-weight: bold; font-size: 16px;
+            text-transform: uppercase; letter-spacing: 1px; cursor: move;
+            display: flex; justify-content: space-between; align-items: center;
+            gap: 8px;
+        }
+        .panel-header .controls { display:flex; gap:8px; align-items:center; }
+        .panel-header button.icon { background: rgba(255,255,255,0.08); border: none; color: #fff; padding:6px 8px; border-radius:6px; cursor:pointer; font-weight:700; }
+
+        .close-btn { cursor: pointer; font-size: 20px; padding: 0 6px; background: transparent; border: none; color: white; }
+
+        .panel-body { padding: 12px; overflow: auto; max-height: calc(100% - 56px); display: flex; flex-direction: column; gap:12px; }
+
+        /* Main action button */
+        #btn-auto {
+            width: 100%; padding: 12px; background: linear-gradient(180deg, #ffd700, #ffaa00); color: #000; font-weight: bold; border: none; border-radius: 8px; cursor: pointer; font-size: 15px; text-transform: uppercase; box-shadow: 0 4px 10px rgba(255, 215, 0, 0.3); transition: 0.15s;
+        }
+        #btn-auto:active { transform: scale(0.99); }
+
+        /* Result layout (default: vertical) */
+        #result-box { display:flex; flex-direction: column; gap:12px; align-items: stretch; }
+
+        .info-row { background: #1a1e29; padding: 10px; border-radius: 8px; font-size: 14px; border: 1px solid #2a2f3a; }
+        .seq-text { letter-spacing: 3px; font-weight: bold; font-family: monospace; font-size: 16px; color: #ffd700; }
+
+        .bar-container { width: 100%; height: 28px; background: #222; border-radius: 12px; display: flex; overflow: hidden; position: relative; border: 1px solid #444; }
+        .bar-tai { height: 100%; display: flex; align-items: center; justify-content: flex-start; padding-left: 10px; font-weight: bold; font-size: 12px; text-shadow: 1px 1px 2px #000; transition: width 0.5s ease; background-color:#ff4d4d; color:#000; }
+        .bar-xiu { height: 100%; display: flex; align-items: center; justify-content: flex-end; padding-right: 10px; font-weight: bold; font-size: 12px; text-shadow: 1px 1px 2px #000; transition: width 0.5s ease; background-color:#4da6ff; color:#000; }
+
+        .pred-grid { display:grid; grid-template-columns: 1fr 1fr; gap:8px; }
+        .pred-box { background: #1a1e29; padding:10px; border-radius:8px; text-align:center; border:1px solid #333; }
+        .pred-title { font-size:12px; color:#aaa; margin-bottom:5px; }
+        .pred-value { font-size:16px; font-weight:bold; text-transform:uppercase; }
+
+        .pred-final { grid-column: span 2; background: linear-gradient(45deg, #2a2a3a, #1a1e29); border: 1px solid #ffd700; padding:12px; }
+        .pred-final .pred-title { color:#ffd700; font-size:13px; }
+        .pred-final .pred-value { font-size:22px; text-shadow: 0 0 10px rgba(255,255,255,0.2); }
+
+        .hint-box { text-align:center; font-size:14px; color:#fff; background: rgba(255,255,255,0.03); padding: 8px; border-radius:6px; }
+
+        /* Horizontal mode: chuyển result thành hàng ngang */
+        .horizontal .panel-body { flex-direction: row; gap: 12px; align-items: flex-start; }
+        .horizontal #result-box { flex-direction: row; gap: 10px; align-items: flex-start; min-width: 0; }
+        .horizontal .pred-grid { display:flex; flex-direction:row; gap:8px; flex-wrap:wrap; }
+        .horizontal .pred-final { min-width: 120px; order: 99; width: auto; grid-column: unset; }
+
+        /* small-screen: show toggle button and adapt */
+        @media (max-width: 720px) {
+            #toggle-tool { display: block; right: 12px; top: 12px; }
+            #tool-panel { left: 8px; right: 8px; width: auto; min-width: auto; transform-origin: top center; }
+            .panel-header { padding: 10px; font-size: 14px; }
+            .panel-body { padding: 10px; max-height: 60vh; }
+        }
+
+        /* ensure buttons inside header don't overflow */
+        .header-title { flex:1; text-align:center; pointer-events:none; }
+
+        /* small select styling */
+        .select-row { display:flex; gap:8px; align-items:center; }
+        .select-row label { color:#aaa; font-size:12px; }
+        .select-row select { padding:8px; border-radius:6px; background:#0f1115; color:#fff; border:1px solid #333; }
+
+        /* utility classes for coloring */
+        .color-tai { color: #ffb3b3 !important; }
+        .color-xiu { color: #b3dcff !important; }
+    </style>
+</head>
+<body>
+
+    <iframe id="game-frame" src="https://lc79b.bet/"></iframe>
+
+    <!-- toggle for small screens / manual show -->
+    <button id="toggle-tool" onclick="togglePanel()">MỞ TOOL</button>
+
+    <div id="tool-panel" aria-hidden="false">
+        <div class="panel-header" id="panel-header">
+            <div class="header-title">🎯 BẢNG DỰ ĐOÁN VIP</div>
+            <div class="controls">
+                <button class="icon" title="Thu nhỏ" onclick="changeScale(-0.1)">−</button>
+                <button class="icon" title="Phóng to" onclick="changeScale(0.1)">+</button>
+                <button class="icon" title="Reset kích thước" onclick="resetScale()">R</button>
+                <button class="icon" id="orientBtn" title="Chuyển ngang / dọc" onclick="toggleOrientation()">↔</button>
+                <button class="close-btn" onclick="togglePanel()">×</button>
+            </div>
+        </div>
+
+        <div class="panel-body" id="panel-body">
+            <div style="flex: 0 0 100%;">
+                <button id="btn-auto" onclick="fetchApiAndPredict()">🔄 CẬP NHẬT DỮ LIỆU CẦU</button>
+            </div>
+
+            <!-- NEW: chọn độ dài chuỗi (11,12,13,14) -->
+            <div class="select-row" style="flex:0 0 auto;">
+                <label for="seq-length-select">Độ dài chuỗi:</label>
+                <select id="seq-length-select" title="Chọn số ván để phân tích">
+                    <option value="11">11</option>
+                    <option value="12">12</option>
+                    <option value="13" selected>13</option>
+                    <option value="14">14</option>
+                </select>
+            </div>
+
+            <!-- NEW: chọn bàn (bàn thường / bàn MD5) -->
+            <div class="select-row" style="flex:0 0 auto;">
+                <label for="api-source-select">Chọn bàn:</label>
+                <select id="api-source-select" title="Chọn nguồn API">
+                    <option value="normal" selected>Bàn thường (mặc định)</option>
+                    <option value="md5">Bàn MD5</option>
+                </select>
+            </div>
+
+            <div id="result-box" style="flex:1 1 auto;">
+                <div style="text-align:center; color:#888; padding: 20px 0;"><i>Chưa có dữ liệu. Hãy bấm cập nhật...</i></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /* ==========================
+           LOGIC (giữ nguyên) + thêm switch API nguồn (bàn MD5)
+           ========================== */
+
+        const GOI_Y_NGUONG = [ [90, "Rất tự tin đặt"], [70, "Nên đặt"], [60, "Cân nhắc"] ];
+        const NGUONG_TY_LE = 3; // chênh lệch cần thiết để ra quyết định
+
+        // Weighted analysis: replicate Python: weights = 2**i and zip(chuoi[::-1], weights)
+        function phanTichChuoiWeighted(chuoi) {
+            if (!Array.isArray(chuoi) || chuoi.length === 0) return { ptTai: 50.0, ptXiu: 50.0 };
+            const n = chuoi.length;
+            const weights = Array.from({length: n}, (_, i) => Math.pow(2, i));
+            const chuoiRev = chuoi.slice().reverse(); // chuoi[::-1]
+            let tai = 0, xiu = 0;
+            for (let i = 0; i < chuoiRev.length; i++) {
+                const c = chuoiRev[i];
+                if (c === "T") tai += weights[i];
+                if (c === "X") xiu += weights[i];
+            }
+            const tong_weight = weights.reduce((a,b)=>a+b,0);
+            const ptTai = parseFloat(((tai / tong_weight) * 100).toFixed(1));
+            const ptXiu = parseFloat(((xiu / tong_weight) * 100).toFixed(1));
+            return { ptTai, ptXiu };
+        }
+
+        function goiYDat(du_doan, percent, chenh) {
+            for (let i = 0; i < GOI_Y_NGUONG.length; i++) {
+                const [threshold, message] = GOI_Y_NGUONG[i];
+                if (percent >= threshold) {
+                    if (percent < 70) {
+                        return `${message} (vì tỷ lệ chưa cao hoặc chênh lệch nhỏ)`;
+                    }
+                    return message;
+                }
+            }
+            return "Bỏ qua";
+        }
+
+        function demChuoiLienTiep(chuoi, ky_tu) {
+            let count = 0;
+            for (let i = chuoi.length - 1; i >= 0; i--) {
+                if (chuoi[i] === ky_tu) count++;
+                else break;
+            }
+            return count;
+        }
+
+        function phanTichChuKy(chuoi) {
+            const Ls = [5,4,3,2];
+            for (let idx = 0; idx < Ls.length; idx++) {
+                const l = Ls[idx];
+                if (chuoi.length >= 2*l) {
+                    const a = chuoi.slice(chuoi.length - l).join("");
+                    const b = chuoi.slice(chuoi.length - 2*l, chuoi.length - l).join("");
+                    if (a === b) return chuoi[chuoi.length - 1];
+                }
+            }
+            return null;
+        }
+
+        function laCauDanXen(chuoi) {
+            if (chuoi.length < 6) return false;
+            for (let i = chuoi.length - 6; i < chuoi.length - 1; i++) {
+                if (chuoi[i] === chuoi[i+1]) return false;
+            }
+            return true;
+        }
+
+        function phatHienCauBip(chuoi) {
+            const tail6 = chuoi.slice(-6).join("");
+            const tail5 = chuoi.slice(-5).join("");
+            if (tail6 === "TTTTTT" || tail6 === "XXXXXX") return "Cầu bệt dài bất thường";
+            if (tail5 === "TXTXX" || tail5 === "XTXTT") return "Cầu nhử đảo 1-1-2";
+            if (tail6 === "TXXTXT") return "Cầu bẫy lặp đều";
+            return null;
+        }
+
+        function duDoanTuChuoi(chuoi) {
+            // chuoi: array of 'T'/'X'
+            const { ptTai, ptXiu } = phanTichChuoiWeighted(chuoi);
+            let diem_tai = 0, diem_xiu = 0;
+
+            // long runs 7..3
+            for (let l = 7; l >= 3; l--) {
+                if (chuoi.length >= l) {
+                    const tail = chuoi.slice(-l);
+                    if (tail.every(x => x === "T")) diem_tai += (l - 2) * 2;
+                    else if (tail.every(x => x === "X")) diem_xiu += (l - 2) * 2;
+                }
+            }
+
+            const ck = phanTichChuKy(chuoi);
+            if (ck === "T") diem_tai += 5;
+            else if (ck === "X") diem_xiu += 5;
+
+            if (laCauDanXen(chuoi)) {
+                if (chuoi[chuoi.length - 1] === "T") diem_xiu += 4;
+                else diem_tai += 4;
+            }
+
+            const tail5 = chuoi.slice(-5).join("");
+            const mau_cau = {
+                "TTXXT": "T", "XXTTX": "X", "TXXTX": "T", "XTTXT": "X",
+                "TXT": "X", "XTX": "T", "TTX": "X", "XXT": "T"
+            };
+            for (const k in mau_cau) {
+                if (tail5.endsWith(k)) {
+                    const v = mau_cau[k];
+                    if (v === "T") diem_tai += 4; else diem_xiu += 4;
+                }
+            }
+
+            if (ptTai > ptXiu + NGUONG_TY_LE) diem_tai += 4;
+            else if (ptXiu > ptTai + NGUONG_TY_LE) diem_xiu += 4;
+
+            const countT = chuoi.filter(c => c === "T").length;
+            const countX = chuoi.filter(c => c === "X").length;
+            if (countT >= 0.6 * chuoi.length) diem_tai += 2;
+            else if (countX >= 0.6 * chuoi.length) diem_xiu += 2;
+
+            const lt_t = demChuoiLienTiep(chuoi, "T");
+            const lt_x = demChuoiLienTiep(chuoi, "X");
+            if (lt_t >= 3) diem_tai += Math.pow(2, lt_t - 2);
+            if (lt_x >= 3) diem_xiu += Math.pow(2, lt_x - 2);
+
+            diem_tai += ptTai / 10;
+            diem_xiu += ptXiu / 10;
+
+            if (diem_tai > diem_xiu + 1) return ["Tài", ptTai, ptXiu];
+            else if (diem_xiu > diem_tai + 1) return ["Xỉu", ptTai, ptXiu];
+            return ["Không rõ", ptTai, ptXiu];
+        }
+
+        function duDoanTuXucXac(dices) {
+            if (!dices || !Array.isArray(dices) || dices.length !== 3) return ["Không rõ", null];
+            const tong = Number(dices[0]) + Number(dices[1]) + Number(dices[2]);
+            if (tong >= 11 && tong <= 17) return ["Tài", tong];
+            if (tong >= 4 && tong <= 10) return ["Xỉu", tong];
+            return ["Không rõ", tong];
+        }
+
+        function duDoanTongHop(chuoi, xuc_xac) {
+            const phan_chuoi = duDoanTuChuoi(chuoi); // [kq_chuoi, pt, px]
+            const kq_chuoi = phan_chuoi[0], pt = phan_chuoi[1], px = phan_chuoi[2];
+
+            let kq_xx = "Không rõ", tong_xx = null;
+            if (xuc_xac && Array.isArray(xuc_xac) && xuc_xac.length === 3) {
+                const tmp = duDoanTuXucXac(xuc_xac);
+                kq_xx = tmp[0]; tong_xx = tmp[1];
+            }
+
+            let ket_qua;
+            if (kq_chuoi === kq_xx && kq_chuoi !== "Không rõ") ket_qua = kq_chuoi;
+            else if (kq_chuoi !== "Không rõ" && (kq_xx === "Không rõ" || !kq_xx)) ket_qua = kq_chuoi;
+            else if (kq_chuoi === "Không rõ" && kq_xx !== "Không rõ") ket_qua = kq_xx;
+            else ket_qua = "Không rõ";
+
+            return {
+                ket_qua,
+                phan_tich_chuoi: [kq_chuoi, pt, px],
+                phan_tich_xuc_xac: [kq_xx, tong_xx]
+            };
+        }
+
+        /* ==========================
+           Hỗ trợ hiển thị + API (giữ nguyên cách gọi UI)
+           ========================== */
+
+        function getMlsClass(kq) {
+            if(kq === "Tài" || kq === "T") return "color-tai";
+            if(kq === "Xỉu" || kq === "X") return "color-xiu";
+            return "";
+        }
+
+        // Helper: robust extract list from API response (tolerant)
+        function extractListFromApiResponse(data) {
+            if (!data) return [];
+            if (Array.isArray(data.list)) return data.list;
+            if (Array.isArray(data.data)) return data.data;
+            if (Array.isArray(data.items)) return data.items;
+            if (Array.isArray(data.lists)) return data.lists;
+            // if data itself is array
+            if (Array.isArray(data)) return data;
+            // sometimes data.data.list
+            if (data.data && Array.isArray(data.data.list)) return data.data.list;
+            return [];
+        }
+
+        // Helper: robust extract result string ('TAI'/'XIU') from an item
+        function extractResultFromItem(item) {
+            if (!item) return null;
+            // common keys
+            const keys = ['resultTruyenThong','result','resultText','result_truyen_thong','result_truyen','ketqua','kq'];
+            for (const k of keys) {
+                if (k in item && item[k] !== undefined && item[k] !== null) {
+                    const v = String(item[k]).toUpperCase();
+                    if (v.includes('TAI') || v === 'T' || v === 'TÀI' || v === 'TA') return 'T';
+                    if (v.includes('XIU') || v === 'X' || v === 'XỈU' || v === 'XI') return 'X';
+                }
+            }
+            // fallback: if dices exist, compute from dices
+            const dices = extractDicesFromItem(item);
+            if (Array.isArray(dices) && dices.length === 3) {
+                const sum = Number(dices[0]) + Number(dices[1]) + Number(dices[2]);
+                if (!isNaN(sum)) {
+                    if (sum >= 11 && sum <= 17) return 'T';
+                    if (sum >= 4 && sum <= 10) return 'X';
+                }
+            }
+            // fallback: if item.point exists (maybe total)
+            if ('point' in item) {
+                const p = Number(item.point);
+                if (!isNaN(p)) {
+                    if (p >= 11 && p <= 17) return 'T';
+                    if (p >= 4 && p <= 10) return 'X';
+                }
+            }
+            return null;
+        }
+
+        // Helper: extract dice array from possible fields
+        function extractDicesFromItem(item) {
+            if (!item) return null;
+            const keys = ['dices','dice','xuc_xac','xucsac','diceValue','dice_values','d'];
+            for (const k of keys) {
+                if (k in item && Array.isArray(item[k]) && item[k].length === 3) return item[k];
+                // sometimes value is string like "2,3,6"
+                if (k in item && typeof item[k] === 'string') {
+                    const parts = item[k].split(/[^0-9]+/).filter(Boolean).map(Number);
+                    if (parts.length === 3) return parts;
+                }
+            }
+            // sometimes dices nested under detail
+            if (item.detail && Array.isArray(item.detail.dices)) return item.detail.dices;
+            return null;
+        }
+
+        async function fetchApiAndPredict() {
+            const resultBox = document.getElementById("result-box");
+            const btn = document.getElementById("btn-auto");
+            const seqSelect = document.getElementById("seq-length-select");
+            const apiSelect = document.getElementById("api-source-select");
+
+            btn.innerHTML = "⏳ ĐANG XỬ LÝ...";
+            btn.style.opacity = "0.7";
+
+            // default API (không đổi) - giữ nguyên như bạn yêu cầu
+            const DEFAULT_API = "https://wtx.tele68.com/v1/tx/sessions?cp=R&cl=R&pf=web&at=4479e6332082ebf7f206ae3cfcd3ff5e";
+            // MD5 API do bạn cung cấp
+            const MD5_API = "https://wtxmd52.tele68.com/v1/txmd5/sessions?cp=R&cl=R&pf=web&at=93b3e543d609af0351163f3ff9a2c495";
+
+            // pick API based on user selection
+            const source = (apiSelect && apiSelect.value) ? apiSelect.value : 'normal';
+            let API_URL = (source === 'md5') ? MD5_API : DEFAULT_API;
+
+            try {
+                let response = await fetch(API_URL);
+                let data = await response.json();
+
+                let list = extractListFromApiResponse(data);
+
+                if (!list || list.length === 0) {
+                    resultBox.innerHTML = "<div style='color:red; text-align:center;'>Lỗi: Không tìm thấy dữ liệu API (list rỗng)!</div>";
+                    return;
+                }
+
+                // Lấy độ dài chuỗi do user chọn (11/12/13/14)
+                let selectedLen = parseInt(seqSelect.value, 10) || 13;
+
+                // Build ketQuaTuApi by extracting resultTruyenThong (robust)
+                let ketQuaTuApi = [];
+                // The API may return newest first; we will take first maxItems and then reverse to show earliest->latest
+                let maxItems = Math.min(selectedLen, list.length);
+                for (let i = 0; i < maxItems; i++) {
+                    let item = list[i];
+                    let r = extractResultFromItem(item);
+                    if (r === 'T') ketQuaTuApi.push("T");
+                    else if (r === 'X') ketQuaTuApi.push("X");
+                    else {
+                        // if cannot detect, skip (or fallback to X if uncertain)
+                        // here we'll attempt to fallback to dice sum if exists
+                        const dices = extractDicesFromItem(item);
+                        if (Array.isArray(dices) && dices.length === 3) {
+                            const s = Number(dices[0]) + Number(dices[1]) + Number(dices[2]);
+                            if (!isNaN(s)) {
+                                if (s >= 11) ketQuaTuApi.push("T");
+                                else ketQuaTuApi.push("X");
+                            } else {
+                                // unknown -> push placeholder '?', but analysis expects T/X, so push last known or X
+                                ketQuaTuApi.push("X");
+                            }
+                        } else {
+                            ketQuaTuApi.push("X");
+                        }
+                    }
+                }
+
+                // giữ logic hiện tại: reverse để chuỗi hiển thị từ cũ -> mới
+                let chuoiN = ketQuaTuApi.reverse();
+
+                // For dice of latest round: try to get from list[0] or first item
+                const firstItem = list[0];
+                const lastDice = extractDicesFromItem(firstItem) || [];
+
+                // Run predictions
+                const ketQua = duDoanTongHop(chuoiN, lastDice);
+                const phanChoi = ketQua.phan_tich_chuoi; // [kq_chuoi, pt, px]
+                const kq_chuoi = phanChoi[0], pt = phanChoi[1], px = phanChoi[2];
+                const chenh = Math.abs(pt - px);
+
+                const kq_xx = ketQua.phan_tich_xuc_xac[0];
+                const tong_xx = ketQua.phan_tich_xuc_xac[1];
+
+                const cau_bip = phatHienCauBip(chuoiN);
+
+                const goi_y = goiYDat(ketQua.ket_qua, Math.max(pt, px), chenh);
+
+                // Hiển thị (giữ nguyên layout)
+                resultBox.innerHTML = `
+                    <div class="info-row" style="min-width:140px;">
+                        <div style="color:#aaa; font-size:12px; margin-bottom:4px;">Nguồn: <b>${source === 'md5' ? 'Bàn MD5' : 'Bàn thường'}</b> — Chuỗi ${chuoiN.length} ván (yêu cầu ${selectedLen}):</div>
+                        <div class="seq-text">${chuoiN.join("")}</div>
+                    </div>
+
+                    <div class="info-row" style="min-width:140px;">
+                        <div style="color:#aaa; font-size:12px; margin-bottom:4px;">Kết quả phiên trước:</div>
+                        <div>🎲 Xúc xắc: <b>${lastDice.length ? lastDice.join(" - ") : "?"}</b> (Tổng <b class="${getMlsClass(kq_xx)}">${tong_xx !== null ? tong_xx : "?"}</b>)</div>
+                    </div>
+
+                    <div style="min-width:200px;">
+                        <div class="bar-container">
+                            <div class="bar-tai" style="width: ${pt}%">${pt}%</div>
+                            <div class="bar-xiu" style="width: ${px}%">${px}%</div>
+                        </div>
+                    </div>
+
+                    <div class="pred-grid" style="min-width:240px;">
+                        <div class="pred-box">
+                            <div class="pred-title">📊 PHÂN TÍCH CHUỖI</div>
+                            <div class="pred-value ${getMlsClass(kq_chuoi)}">${kq_chuoi}</div>
+                        </div>
+                        <div class="pred-box">
+                            <div class="pred-title">🎲 DỰ ĐOÁN XÚC XẮC</div>
+                            <div class="pred-value ${getMlsClass(kq_xx)}">${kq_xx}</div>
+                        </div>
+                        <div class="pred-box pred-final">
+                            <div class="pred-title">🔥 CHỐT KẾT QUẢ TỔNG HỢP 🔥</div>
+                            <div class="pred-value ${getMlsClass(ketQua.ket_qua)}">${ketQua.ket_qua}</div>
+                        </div>
+                    </div>
+
+                    <div class="hint-box" style="min-width:160px;">
+                        💡 <b>Gợi ý đánh:</b> <span style="color:#ffd700;">${goi_y}</span>
+                    </div>
+                `;
+
+                if (cau_bip) {
+                    // append warning block visually (kept minimal to not change layout)
+                    const warnHtml = document.createElement('div');
+                    warnHtml.className = 'info-row';
+                    warnHtml.style.border = '1px solid #ffb3b3';
+                    let more = '';
+                    if (cau_bip === "Cầu bệt dài bất thường") more = "Gợi ý: Đặt ngược lại hoặc cân nhắc không đặt.";
+                    else if (cau_bip === "Cầu nhử đảo 1-1-2") more = "Gợi ý: Đặt theo chu kỳ đảo hoặc bỏ qua.";
+                    else if (cau_bip === "Cầu bẫy lặp đều") more = "Gợi ý: Đặt theo xu hướng mới hoặc chờ thêm kết quả.";
+                    warnHtml.innerHTML = `<div style="color:#ffdddd; font-weight:bold;">⚠️ CẢNH BÁO: ${cau_bip}</div><div style="color:#ffd9b3; margin-top:6px;">${more}</div>`;
+                    resultBox.prepend(warnHtml);
+                }
+
+            } catch (error) {
+                console.error(error);
+                resultBox.innerHTML = `<div style='color:#ff4d4d; text-align:center;'>⚠️ Lỗi kết nối API hoặc CORS. Hãy mở F12 xem chi tiết.</div>`;
+            } finally {
+                btn.innerHTML = "🔄 CẬP NHẬT DỮ LIỆU CẦU";
+                btn.style.opacity = "1";
+            }
+        }
+
+        /* ==========================
+           UI: Hiển thị/Ẩn, chuyển ngang/dọc, scale, drag (kéo bằng chuột + touch)
+           (giữ nguyên từ file gốc)
+           ========================== */
+        const panel = document.getElementById("tool-panel");
+        const header = document.getElementById("panel-header");
+        const toggleBtn = document.getElementById("toggle-tool");
+        let isOpen = true;
+        function togglePanel() {
+            if (panel.style.display === "none" || panel.getAttribute('aria-hidden') === 'true') {
+                panel.style.display = "block";
+                panel.setAttribute('aria-hidden','false');
+                toggleBtn.style.display = 'none';
+                isOpen = true;
+            } else {
+                panel.style.display = "none";
+                panel.setAttribute('aria-hidden','true');
+                toggleBtn.style.display = 'block';
+                isOpen = false;
+            }
+        }
+
+        // Orientation toggle
+        function toggleOrientation() {
+            panel.classList.toggle('horizontal');
+            const btn = document.getElementById('orientBtn');
+            if (panel.classList.contains('horizontal')) btn.title = "Chế độ ngang";
+            else btn.title = "Chế độ dọc";
+        }
+
+        // Scale controls (affect transform scale)
+        function changeScale(delta) {
+            let current = parseFloat(getComputedStyle(panel).getPropertyValue('--panel-scale')) || 1;
+            let next = Math.min(2, Math.max(0.6, +(current + delta).toFixed(2)));
+            panel.style.setProperty('--panel-scale', next);
+        }
+        function resetScale() {
+            panel.style.setProperty('--panel-scale', 1);
+        }
+
+        // Drag (mouse)
+        let isDragging = false, offsetX = 0, offsetY = 0;
+        header.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            const rect = panel.getBoundingClientRect();
+            offsetX = e.clientX - rect.left;
+            offsetY = e.clientY - rect.top;
+            panel.style.right = 'auto';
+        });
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            panel.style.left = (e.clientX - offsetX) + 'px';
+            panel.style.top = (e.clientY - offsetY) + 'px';
+        });
+        document.addEventListener('mouseup', () => { isDragging = false; });
+
+        // Touch support for drag
+        header.addEventListener('touchstart', (ev) => {
+            const touch = ev.touches[0];
+            isDragging = true;
+            const rect = panel.getBoundingClientRect();
+            offsetX = touch.clientX - rect.left;
+            offsetY = touch.clientY - rect.top;
+            panel.style.right = 'auto';
+        }, {passive: true});
+        document.addEventListener('touchmove', (ev) => {
+            if (!isDragging) return;
+            const touch = ev.touches[0];
+            panel.style.left = (touch.clientX - offsetX) + 'px';
+            panel.style.top = (touch.clientY - offsetY) + 'px';
+        }, {passive: true});
+        document.addEventListener('touchend', () => { isDragging = false; });
+
+        // Make toggle btn visible on load for small screens if panel hidden
+        window.addEventListener('load', () => {
+            if (window.innerWidth <= 720) {
+                toggleBtn.style.display = 'block';
+            } else {
+                toggleBtn.style.display = 'none';
+            }
+        });
+
+        // Ensure panel stays visible if resized window
+        window.addEventListener('resize', () => {
+            if (window.innerWidth <= 720) toggleBtn.style.display = 'block';
+            else if (isOpen) toggleBtn.style.display = 'none';
+        });
+
+    </script>
+</body>
+</html>
